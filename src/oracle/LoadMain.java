@@ -13,7 +13,10 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
+import java.util.Vector;
 
 import javax.swing.JButton;
 import javax.swing.JFileChooser;
@@ -23,6 +26,8 @@ import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTable;
 import javax.swing.JTextField;
+import javax.swing.event.TableModelEvent;
+import javax.swing.event.TableModelListener;
 
 import org.apache.poi.hssf.usermodel.HSSFCell;
 import org.apache.poi.hssf.usermodel.HSSFRow;
@@ -30,7 +35,7 @@ import org.apache.poi.hssf.usermodel.HSSFSheet;
 import org.apache.poi.hssf.usermodel.HSSFWorkbook;
 import org.apache.poi.ss.usermodel.DataFormatter;
 
-public class LoadMain extends JFrame implements ActionListener{
+public class LoadMain extends JFrame implements ActionListener, TableModelListener{
 	JPanel p_north;
 	JTextField t_path;
 	JButton bt_open, bt_load, bt_excel, bt_del;
@@ -46,6 +51,8 @@ public class LoadMain extends JFrame implements ActionListener{
 	DBManager manager = DBManager.getInstance();		//초기화. 메서드 호출   = 다음은 생성자에 해도 상관없다.
 	Connection con;
 	
+	Vector<Vector> list;
+	Vector columnName;
 	
 	public LoadMain() {
 		p_north = new JPanel();
@@ -55,7 +62,7 @@ public class LoadMain extends JFrame implements ActionListener{
 		bt_excel = new JButton("엑셀로드");
 		bt_del = new JButton("삭제하기");
 		
-		table = new JTable();
+		table = new JTable();		//JTable은 테이블 모델을 사용할 경우 보여지는 것은 물론 편집까지 테이블 모델이 책임진다.
 		scroll = new JScrollPane(table);
 		chooser = new JFileChooser("C://animal");	// 기본경로 
 				
@@ -84,6 +91,10 @@ public class LoadMain extends JFrame implements ActionListener{
 				System.exit(0);
 			}
 		});
+		
+		
+		
+		
 		
 		setVisible(true);
 		setSize(800, 600);
@@ -134,7 +145,7 @@ public class LoadMain extends JFrame implements ActionListener{
 				String[] value = data.split(",");			//나는 ,를 기준으로 분리할꺼야   .과 같은 기능성 문자는 앞에 \\를 넣어줘야하지만 여기서 ,는 기능성 문자가 아님.
 				
 				//seq 줄을 제외하고 insert하겠다.
-				if(!value[0].equals("seq")){		
+				if(!value[0].equals("seq")){	
 					sb.append("insert into hospital(seq,name,addr,regdate,status,dimension,type)");
 					sb.append(" values("+value[0]+",'"+value[1]+"','"+value[2]+"','"+value[3]+"','"+value[4]+"',"+value[5]+",'"+value[6]+"')");
 					
@@ -151,6 +162,16 @@ public class LoadMain extends JFrame implements ActionListener{
 				}
 			}	
 			JOptionPane.showMessageDialog(this, "마이그레이션 완료!");
+			
+			//JTable 나오게 처리
+			getList();
+			table.setModel(new MyModel(list, columnName));
+			
+			//테이블 모델과 리스너와의 연결	//모델을 적용한 후에 리스너를 연결해야한다. 그래야 수정관련된 메서드가 호출가능
+			table.getModel().addTableModelListener(this);;		//현재사용하고 있는 table이 현재 MyModel을 사용하고 있어서 table이라고 지칭해도 된다. MyModel해도 되고.
+			table.updateUI();
+			
+			
 		} catch (IOException e) {
 			e.printStackTrace();
 		} catch (SQLException e) {
@@ -197,7 +218,7 @@ public class LoadMain extends JFrame implements ActionListener{
 				
 				int total = sheet.getLastRowNum();		//row의 마지막 번호 받기
 				DataFormatter df = new DataFormatter();	//자료형에 상관없이 받기.
-				
+												
 				for(int a=1; a<=total; a++){	//0번째 줄 컬럼 제외하기 위해 1번부터 시작
 					HSSFRow row = sheet.getRow(a);
 					
@@ -205,8 +226,10 @@ public class LoadMain extends JFrame implements ActionListener{
 					
 					for(int i=0; i<columnCount; i++){	//얘는 0번째부터 값을 받을꺼니까 0부터
 						HSSFCell cell = row.getCell(i);
+						
 						//자료형에 국한되지 않고 모두 String 처리
 						String value = df.formatCellValue(cell);
+						
 						System.out.print(value); //표기
 					}
 					System.out.println("");	//줄띄우기
@@ -216,9 +239,63 @@ public class LoadMain extends JFrame implements ActionListener{
 				e.printStackTrace();
 			} catch (IOException e) {
 				e.printStackTrace();
+			}			
+		}		
+	}
+	
+	//JTable에 모든 레코드 가져오기
+	public void getList(){
+		String sql="select * from hospital order by seq asc";
+		
+		PreparedStatement pstmt = null;
+		ResultSet rs = null;
+		
+		try {
+			pstmt = con.prepareStatement(sql);
+			rs = pstmt.executeQuery();
+			//rs를 DB연동 끝난다음에 vector를 가공하자. tableModel을 위해서. 
+			
+			//컬럼명도 추출
+			ResultSetMetaData meta = rs.getMetaData();	
+			int count = meta.getColumnCount();		//for문 돌때 컬럼명단에 add하는 역할
+			columnName = new Vector();
+			
+			for(int i=0;i<count;i++){
+				columnName.add(meta.getColumnName(i+1));
 			}
 			
+			list = new Vector<Vector>();		//이차원 백터. 아래의 작은 벡터들을 담을 큰 벡터 // 필요한 시점에서 활용할 수 있게 멤버변수로 뺴두자
 			
+			while(rs.next()){
+				Vector vec = new Vector(); //레코드 1건 담을거임
+				
+				vec.add(rs.getString("seq"));
+				vec.add(rs.getString("name"));
+				vec.add(rs.getString("addr"));
+				vec.add(rs.getString("regdate"));
+				vec.add(rs.getString("status"));
+				vec.add(rs.getString("dimension"));
+				vec.add(rs.getString("type"));
+				
+				list.add(vec);
+			}
+		} catch (SQLException e) {
+			e.printStackTrace();
+		} finally{
+			if(rs!=null){
+				try {
+					rs.close();
+				} catch (SQLException e) {
+					e.printStackTrace();
+				}
+			}
+			if(pstmt!=null){
+				try {
+					pstmt.close();
+				} catch (SQLException e) {
+					e.printStackTrace();
+				}
+			}
 		}
 		
 	}
@@ -227,7 +304,6 @@ public class LoadMain extends JFrame implements ActionListener{
 	public void delete(){
 		
 	}
-	
 	
 	public void actionPerformed(ActionEvent e) {
 		Object obj = e.getSource();
@@ -245,6 +321,13 @@ public class LoadMain extends JFrame implements ActionListener{
 	public void init(){
 		//Connection 얻어다 놓기
 		con = manager.getConnection();
+	}
+	
+	//테이블 모델의 데이터값에 변경이 발생하면, 그 찰나를 감지하는 리스너
+	public void tableChanged(TableModelEvent e) {
+		System.out.println("바꿨니?");
+		//update hospital set 컬럼명=값 where   업데이트문 출력하기
+		//내가 현재 수정한 데이터가 몇콤마 몇인지 찍어보자.
 		
 	}
 	
@@ -254,3 +337,5 @@ public class LoadMain extends JFrame implements ActionListener{
 	}
 
 }
+
+
