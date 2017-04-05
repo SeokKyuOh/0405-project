@@ -192,6 +192,7 @@ public class LoadMain extends JFrame implements ActionListener, TableModelListen
 	//open Source 공개소프트웨어
 	//copyright (MS의 정책, 돈내라) <---> copyleft(아파치 단체. 소프트웨어는 공개되어야한다.)
 	//POI 라이브러리! http://apache.org
+	//APCHE의 API   http://poi.apache.org/apidocs/index.html
 	/*
 	 	HSSFWorkbook : 엑셀파일
 	 	HSSFSheet : sheet
